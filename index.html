@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>JP Training · 2026</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#0b1020" />
+
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="JP Training" />
+    <link rel="stylesheet" href="style.css">
+  </head>
+
+  <body>
+    <div class="top">
+      <div class="brand">
+        <h1>JP Training · 2026</h1>
+        <div class="sub">
+          10 min aufwärmen · Gewicht: machbar, letzter Satz = anstrengend
+        </div>
+      </div>
+
+      <span class="pill mono" id="day"></span>
+      <span style="flex: 1"></span>
+
+      <div class="seg" aria-label="Theme">
+        <button id="tSystem">Auto</button>
+        <button id="tDark">Dark</button>
+        <button id="tLight">Light</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="pad">
+          <div class="tag">Nächster Satz</div>
+          <div class="stepTitle" id="title">–</div>
+          <div class="stepSub" id="sub">–</div>
+          <div class="prog"><div class="bar" id="bar"></div></div>
+
+          <div class="ghostBtns">
+            <span class="pill mono" id="counter">0/0</span>
+            <span class="pill mono" id="lastW">–</span>
+          </div>
+
+          <div class="ghostBtns">
+            <button class="ghost" id="resetDay" title="Nur heute zurücksetzen">
+              Heute neu
+            </button>
+            <button
+              class="ghost"
+              id="resetOrder"
+              title="Tagesreihenfolge zurücksetzen"
+            >
+              Reihenfolge reset
+            </button>
+            <button class="ghost" id="wipeAll" title="Alles löschen">
+              Alles löschen
+            </button>
+          </div>
+        </div>
+
+        <div class="okbox" id="okbox">
+          <b>Gut gemacht – du bist für heute durch 🫡</b>
+          <span>Morgen wieder. Oder später. Du bist ein freies Säugetier.</span>
+        </div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi">
+          <div class="label">Heute erledigt</div>
+          <div class="val mono" id="doneSets">0</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Gesamt Sätze</div>
+          <div class="val mono" id="totalSets">0</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Nächste Übung · letztes Gewicht</div>
+          <div class="val mono" id="nextLast">–</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="pad">
+          <div class="tag">Übersicht</div>
+          <div class="hint">
+            Tippe auf eine <b>nicht fertige</b> Übung, um sie für
+            <b>heute</b> nach vorne zu ziehen.
+          </div>
+          <div class="overview" id="overview"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dock" role="toolbar" aria-label="Satzsteuerung">
+      <input
+        id="w"
+        inputmode="decimal"
+        type="number"
+        step="0.5"
+        min="0"
+        placeholder="kg / s"
+      />
+      <button class="btn primary" id="nextBtn">Weiter ✓</button>
+    </div>
+
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./sw.js");
+        });
+      }
+
+      (() => {
+        // ===== Theme =====
+        const THEME_KEY = "jp_theme";
+        const html = document.documentElement;
+        const paint = (m) => {
+          ["tSystem", "tDark", "tLight"].forEach((id) =>
+            document.getElementById(id).classList.remove("active")
+          );
+          document
+            .getElementById(
+              m === "system" ? "tSystem" : m === "dark" ? "tDark" : "tLight"
+            )
+            .classList.add("active");
+        };
+        const setTheme = (m) => {
+          html.dataset.theme = m;
+          localStorage.setItem(THEME_KEY, m);
+          const meta = document.querySelector('meta[name="theme-color"]');
+          const isLight =
+            m === "light" ||
+            (m === "system" &&
+              matchMedia("(prefers-color-scheme: light)").matches);
+          meta && meta.setAttribute("content", isLight ? "#ffffff" : "#0b1020");
+          paint(m);
+        };
+        const savedTheme = localStorage.getItem(THEME_KEY) || "system";
+        paint(savedTheme);
+        html.dataset.theme = savedTheme;
+        document.getElementById("tSystem").onclick = () => setTheme("system");
+        document.getElementById("tDark").onclick = () => setTheme("dark");
+        document.getElementById("tLight").onclick = () => setTheme("light");
+        matchMedia("(prefers-color-scheme: light)").addEventListener?.(
+          "change",
+          () => {
+            if ((localStorage.getItem(THEME_KEY) || "system") === "system")
+              setTheme("system");
+          }
+        );
+
+        // ===== Training =====
+        const BASE_PLAN = [
+          {
+            k: "latzug",
+            n: "Latzug breit zur Brust",
+            reps: "12–15",
+            sets: 3,
+            unit: "kg",
+          },
+          {
+            k: "rueckenstrecker",
+            n: "Rückenstrecker",
+            reps: "12–15",
+            sets: 3,
+            unit: "kg",
+          },
+          {
+            k: "reversefly",
+            n: "Reverse Fly",
+            reps: "12–15",
+            sets: 3,
+            unit: "kg",
+          },
+          {
+            k: "brustpresse",
+            n: "Brustpresse",
+            reps: "12–15",
+            sets: 4,
+            unit: "kg",
+          },
+          {
+            k: "butterfly",
+            n: "Butterfly",
+            reps: "12–15",
+            sets: 3,
+            unit: "kg",
+          },
+          {
+            k: "beinpresse",
+            n: "Beinpresse",
+            reps: "12–15",
+            sets: 4,
+            unit: "kg",
+          },
+          {
+            k: "beinstrecker",
+            n: "Beinstrecker",
+            reps: "12–15",
+            sets: 3,
+            unit: "kg",
+          },
+          {
+            k: "seitheben",
+            n: "Seitheben",
+            reps: "12–15",
+            sets: 4,
+            unit: "kg",
+          },
+          {
+            k: "plank",
+            n: "Plank max",
+            reps: "max (+1s jedes mal)",
+            sets: 1,
+            unit: "s",
+          },
+        ];
+
+        const $ = (s) => document.querySelector(s);
+        const KEY = "jp_training_2026_v3";
+        const dayKey = new Date().toISOString().slice(0, 10);
+        $("#day").textContent = dayKey;
+
+        // storage:
+        // db = { weights:{k:last}, done:{day:{k:count}}, logs:[{d,k,set,w}], dayOrder:{day:[k,k,...]} }
+        const load = () => JSON.parse(localStorage.getItem(KEY) || "{}");
+        const save = (db) => localStorage.setItem(KEY, JSON.stringify(db));
+        const db = load();
+        db.weights ??= {};
+        db.done ??= {};
+        db.logs ??= [];
+        db.dayOrder ??= {};
+        db.done[dayKey] ??= {};
+        // initialize daily order once per day (not permanent)
+        if (!Array.isArray(db.dayOrder[dayKey]))
+          db.dayOrder[dayKey] = BASE_PLAN.map((x) => x.k);
+
+        const totalSets = BASE_PLAN.reduce((a, x) => a + x.sets, 0);
+        $("#totalSets").textContent = totalSets;
+
+        const doneCount = (k) => db.done[dayKey][k] ?? 0;
+        const setDoneCount = (k, c) => {
+          db.done[dayKey][k] = c;
+          save(db);
+        };
+
+        const lastWeight = (k) => db.weights[k] ?? "";
+        const setWeight = (k, w) => {
+          db.weights[k] = w;
+          save(db);
+        };
+        const log = (k, setNo, w) => {
+          db.logs.push({ d: dayKey, k, set: setNo, w });
+          save(db);
+        };
+
+        const planByKey = Object.fromEntries(BASE_PLAN.map((x) => [x.k, x]));
+        const getTodayPlan = () =>
+          db.dayOrder[dayKey].map((k) => planByKey[k]).filter(Boolean);
+
+        function doneSetsTotal() {
+          return getTodayPlan().reduce(
+            (a, ex) => a + Math.min(doneCount(ex.k), ex.sets),
+            0
+          );
+        }
+
+        function nextStep() {
+          for (const ex of getTodayPlan()) {
+            const c = doneCount(ex.k);
+            if (c < ex.sets) return { ex, setNo: c + 1 };
+          }
+          return null;
+        }
+
+        function nextExerciseLastWeight() {
+          const step = nextStep();
+          if (!step) return "–";
+          const lw = lastWeight(step.ex.k);
+          return lw !== "" ? `${lw}${step.ex.unit}` : `—${step.ex.unit}`;
+        }
+
+        function pullToFrontForToday(k) {
+          // only if not finished
+          const ex = planByKey[k];
+          if (!ex) return;
+          if (doneCount(k) >= ex.sets) return; // finished -> ignore
+          const order = db.dayOrder[dayKey].slice();
+          const idx = order.indexOf(k);
+          if (idx === -1) return;
+          order.splice(idx, 1);
+          order.unshift(k);
+          db.dayOrder[dayKey] = order;
+          save(db);
+          // UX: clear input so default last weight for the new "next" applies
+          $("#w").value = "";
+          render();
+        }
+
+        function render() {
+          const done = doneSetsTotal();
+          $("#doneSets").textContent = done;
+
+          const pct = totalSets ? Math.round((done / totalSets) * 100) : 0;
+          $("#bar").style.width = pct + "%";
+          $("#counter").textContent = `${done}/${totalSets}`;
+
+          const step = nextStep();
+          const allDone = !step;
+
+          $("#okbox").style.display = allDone ? "block" : "none";
+          $("#nextBtn").disabled = allDone;
+          $("#w").disabled = allDone;
+
+          $("#nextLast").textContent = nextExerciseLastWeight();
+
+          if (allDone) {
+            $("#title").textContent = "Fertig.";
+            $("#sub").textContent = "Keine Sätze mehr übrig.";
+            $("#lastW").textContent = "–";
+            $("#w").value = "";
+          } else {
+            const { ex, setNo } = step;
+            const lw = lastWeight(ex.k);
+            $("#title").textContent = `${ex.n} · Satz ${setNo}/${ex.sets}`;
+            $("#sub").textContent = `${ex.sets}× ${ex.reps} · letztes ${
+              ex.unit
+            }: ${lw !== "" ? lw : "–"}`;
+            $("#w").placeholder = ex.unit;
+            if ($("#w").value.trim() === "") $("#w").value = lw;
+            $("#lastW").textContent = lw !== "" ? `${lw}${ex.unit}` : "–";
+          }
+
+          const todays = getTodayPlan();
+          $("#overview").innerHTML = todays
+            .map((ex) => {
+              const c = doneCount(ex.k);
+              const lw = lastWeight(ex.k);
+              const status = c >= ex.sets ? "✅" : c > 0 ? "🟡" : "⬜️";
+              const disabled = c >= ex.sets ? 'aria-disabled="true"' : "";
+              const title =
+                c >= ex.sets
+                  ? 'title="Schon fertig"'
+                  : 'title="Für heute nach vorne ziehen"';
+              return `
+        <div class="item" data-k="${ex.k}" ${disabled} ${title}>
+          <div>
+            <div>${status} <b>${ex.n}</b></div>
+            <div class="meta">${ex.sets}× ${ex.reps}</div>
+          </div>
+          <div class="right mono">
+            <div>${c}/${ex.sets}</div>
+            <div>${lw !== "" ? lw + ex.unit : "—"}</div>
+          </div>
+        </div>`;
+            })
+            .join("");
+
+          // attach click handlers (non-permanent reorder, only today)
+          $("#overview")
+            .querySelectorAll(".item[data-k]")
+            .forEach((el) => {
+              el.onclick = () => {
+                if (el.getAttribute("aria-disabled") === "true") return;
+                pullToFrontForToday(el.dataset.k);
+              };
+            });
+        }
+
+        function advance() {
+          const step = nextStep();
+          if (!step) return;
+          const { ex, setNo } = step;
+
+          const w = $("#w").value.trim();
+          if (w !== "") {
+            setWeight(ex.k, w);
+            log(ex.k, setNo, w);
+          }
+
+          setDoneCount(ex.k, Math.min(ex.sets, setNo));
+
+          // if next exercise changes, clear input so default last weight works
+          const after = nextStep();
+          if (after && after.ex.k !== ex.k) $("#w").value = "";
+
+          render();
+        }
+
+        $("#nextBtn").onclick = advance;
+        $("#w").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") advance();
+        });
+
+        $("#resetDay").onclick = () => {
+          db.done[dayKey] = {};
+          save(db);
+          $("#w").value = "";
+          render();
+        };
+        $("#resetOrder").onclick = () => {
+          db.dayOrder[dayKey] = BASE_PLAN.map((x) => x.k);
+          save(db);
+          $("#w").value = "";
+          render();
+        };
+        $("#wipeAll").onclick = () => {
+          localStorage.removeItem(KEY);
+          location.reload();
+        };
+
+        save(db);
+        render();
+        setTheme(savedTheme);
+      })();
+    </script>
+  </body>
+</html>
